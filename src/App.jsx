@@ -1,31 +1,28 @@
-import { useState, useEffect } from "react";
-import { FixedSizeGrid as Grid } from 'react-window';
+import React, { useState, useEffect, useRef } from "react";
+import { FixedSizeList as List } from 'react-window';
 import InfiniteLoader from 'react-window-infinite-loader';
 
+import { Header } from "../components/Header"
 import { useWindowDimensions } from "../utils";
 
-import "./App.css";
-
-const Header = () => {
-  return (
-    <div className="w-full sticky top-0 h-16 bg-indigo-500 mb-4">
-      <h1 className="text-2xl font-bold text-center py-4 text-white">
-        Cats Wall
-      </h1>
-    </div>
-  )
-}
-
+// Default constants
+const ITEM_WIDTH = 400
+const ITEM_HEIGHT = 360
 
 function App() {
-  const [page, setPage] = useState(1)
+  const infiniteLoaderRef = useRef()
+
+  // A fixed number of limit that we are getting from the api
+  const [limit] = useState(20)
+  // initial page number
+  const [page, setPage] = useState(0)
+
   const [cats, setCats] = useState([]);
-  const [isItemLoaded, setIsItemLoaded] = useState(false)
+  const [hasMore] = useState(true)
 
   const { width, height } = useWindowDimensions()
 
-  const fetchCats = async ({ limit }) => {
-
+  const fetchCats = async ({ page }) => {
     try {
       const apiResponse = await fetch(
         `https://api.thecatapi.com/v1/images/search?page=${page}&limit=${limit}`,
@@ -38,120 +35,95 @@ function App() {
       );
       const result = await apiResponse.json();
       setCats(state => [...state, ...result]);
-      setIsItemLoaded(true)
     } catch (error) {
       console.error(error);
     }
   };
 
   useEffect(() => {
-    const items = rowsCount * columns
-    fetchCats({ limit: items, page });
+    fetchCats({ page });
   }, [page]);
 
-  const COLUMN_WIDTH = 300
-  const ROW_HEIGHT = 300
-
-  const columns = Math.ceil(width / COLUMN_WIDTH) - 1
-
-  const rowsCount = Math.ceil(height / ROW_HEIGHT) - 1
-
-  const onNext = () => {
-    setPage((t) => t + 1);
+  const loadMoreItems = () => {
+    setPage((state) => state + 1);
   };
 
-  const Row = ({ rowIndex, columnIndex, style }) => {
-    const item = cats[rowIndex * columns + columnIndex];
-    return (
-      <div div style={style} className="p-2" >
-        <img src={item?.url} alt="" className="w-full h-full rounded-sm" />
-      </div >
-    )
+  function generateIndexesForRow(rowIndex, maxItemsPerRow, itemsAmount) {
+    const result = [];
+    const startIndex = rowIndex * maxItemsPerRow;
+
+    for (let i = startIndex; i < Math.min(startIndex + maxItemsPerRow, itemsAmount); i++) {
+      result.push(i);
+    }
+
+    return result;
   }
 
-  const ItemsRendered = infiniteOnItemsRendered => ({
-    visibleColumnStartIndex,
-    visibleColumnStopIndex,
-    visibleRowStartIndex,
-    visibleRowStopIndex,
-  }) => {
-    const visibleStartIndex = visibleRowStartIndex * columns + visibleColumnStartIndex;
-    const visibleStopIndex = visibleRowStopIndex * columns + visibleColumnStopIndex;
+  function getMaxItemsAmountPerRow(width) {
+    return Math.max(Math.floor(width / ITEM_WIDTH), 1);
+  }
 
-    infiniteOnItemsRendered({
-      visibleStartIndex,
-      visibleStopIndex,
-    });
-  };
+  function getRowsAmount(width, itemsAmount, hasMore) {
+    const maxItemsPerRow = getMaxItemsAmountPerRow(width);
 
-  const requestCache = {}
+    return Math.ceil(itemsAmount / maxItemsPerRow) + (hasMore ? 1 : 0);
+  }
 
-  const loadMoreItems = (visibleStartIndex, visibleStopIndex) => {
-    if (isItemLoaded) {
-      return;
-    }
+  const RowItem = React.memo(function RowItem({ movieId, }) {
+    const cat = movieId
+    return (
+      <div item className="p-2" style={{
+        width: ITEM_WIDTH
+      }} key={cat?.id}>
+        <img src={cat?.url} alt="" className="w-full h-full rounded-sm" />
+      </div>
+    );
+  });
 
-    const key = [visibleStartIndex, visibleStopIndex].join(':');
-    if (requestCache[key]) {
-      return;
-    }
+  const rowRenderer = ({ index, style }) => {
+    const maxItemsPerRow = getMaxItemsAmountPerRow(width);
+    const Ids = generateIndexesForRow(index, maxItemsPerRow, cats.length).map(movieIndex => cats[movieIndex]);
 
-    let itemsRetrieved = true;
-    for (let i = visibleStartIndex; i < visibleStopIndex; i += 1) {
-      if (!state.items[i]) {
-        itemsRetrieved = false;
-        break;
-      }
-    }
-
-    if (itemsRetrieved) {
-      requestCache[key] = key;
-      return;
-    }
-
-
+    return (
+      <div style={style} className="flex justify-center">
+        {Ids.map((movieId, index) => (
+          <RowItem key={index} movieId={movieId} />
+        ))}
+      </div>
+    )
   };
 
   const itemsCount = cats.length
-  console.log({ columns, rowsCount })
+
   return (
     <div className="bg-blue-300">
       <Header />
-      height -{height}, width-{width}
-      {/* <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "repeat(auto-fit, minmax(300px,1fr))",
-          gap: "16px",
-          margin: "10px"
-        }}
-      >
-        {cats.map((cat, index) => (
-          <img key={index} src={cat?.url} alt="" className="h-72 w-72 rounded-md" />
-        ))}
-      </div> */}
 
       <InfiniteLoader
-        isItemLoaded={isItemLoaded}
-        loadMoreItems={loadMoreItems}
+        ref={infiniteLoaderRef}
         itemCount={itemsCount}
-      >
-      </InfiniteLoader>
-      {({ onItemsRendered, ref }) => (
-        <Grid
-          onItemsRendered={ItemsRendered(onItemsRendered)}
-          columnCount={columns}
-          columnWidth={COLUMN_WIDTH}
-          height={height - 30}
-          rowCount={rowsCount}
-          rowHeight={ROW_HEIGHT}
-          width={width}
-          ref={ref}
-        >
-          {Row}
+        isItemLoaded={({ index }) => {
+          const maxItemsPerRow = getMaxItemsAmountPerRow(width);
+          const allItemsLoaded = generateIndexesForRow(index, maxItemsPerRow, cats.length).length > 0;
 
-        </Grid>
-      )}
+          return !hasMore || allItemsLoaded;
+        }}
+        loadMoreItems={loadMoreItems}
+      >
+        {({ onItemsRendered, ref }) => (
+          <List
+            ref={ref}
+            className="my-4"
+            height={height}
+            width={width}
+            itemCount={itemsCount}
+            itemSize={ITEM_HEIGHT}
+            onItemsRendered={onItemsRendered}
+          >
+            {rowRenderer}
+          </List>
+        )}
+      </InfiniteLoader>
     </div>
   );
 }
